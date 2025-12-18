@@ -1,0 +1,28 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: scheduler
+      POSTGRES_PASSWORD: scheduler
+      POSTGRES_DB: schedulerdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_shared:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro   # optional init scripts
+    networks:
+      - shared_net
+
+  redis:
+    image: redis:7.0-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - shared_net
+
+volumes:
+  pgdata_shared:
+
+networks:
+  shared_net:
+    external: true

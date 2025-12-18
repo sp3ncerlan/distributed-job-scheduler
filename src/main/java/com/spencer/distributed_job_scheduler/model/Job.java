@@ -27,6 +27,12 @@ public class Job {
     @Column(nullable = false)
     private JobStatus status;
 
+    @Column(name = "job_type", nullable = false)
+    private String jobType;
+
+    @Column(name = "callback_url")
+    private String callbackUrl;
+
     @Column(name = "scheduled_at", nullable = false)
     private Instant scheduledAt;
 
