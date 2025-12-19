@@ -36,6 +36,12 @@ public class Job {
     @Column(name = "scheduled_at", nullable = false)
     private Instant scheduledAt;
 
+    @Column(name = "started_at", nullable = false)
+    private Instant startedAt;
+
+    @Column(name = "finished_at", nullable = false)
+    private Instant finishedAt;
+
     @Column(columnDefinition = "text")
     private String payload;
 

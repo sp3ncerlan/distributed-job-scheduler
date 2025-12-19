@@ -9,25 +9,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-@Service
-@RequiredArgsConstructor
-public class JobService {
+public interface JobService {
+    Job createJob(Job job);
 
-    private final JobRepository jobRepository;
+    Optional<Job> getJob(UUID id);
 
-    public Job createJob(Job job) {
-        return jobRepository.save(job);
-    }
+    List<Job> getAllJobs();
 
-    public Optional<Job> getJob(UUID id) {
-        return jobRepository.findById(id);
-    }
-
-    public List<Job> getAllJobs() {
-        return jobRepository.findAll();
-    }
-
-    public void deleteJob(UUID id) {
-        jobRepository.deleteById(id);
-    }
+    // change DB to mark a job as 'RUNNING'
+    void markRunning(Job job);
 }
