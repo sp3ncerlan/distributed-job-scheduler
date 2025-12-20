@@ -1,2 +1,9 @@
-/mvnw text eol=lf
-*.cmd text eol=crlf
+# normalize most text files across platforms
+* text=auto
+
+# enforce LF for shell scripts
+*.sh text eol=lf
+
+# binary files (no normalization, no diffs)
+*.png binary
+*.jpg binary
