@@ -48,3 +48,15 @@ graph LR
     RedisLock -- Fail --> Worker2
     Worker1 -- 5. Execute --> ExtAPI[External API]
 ```
+
+---
+
+## 📷 Screenshots of Logger:
+
+- Shows a duplicate job failing due to the same Job ID already having a lock from Redis
+<img width="1273" height="280" alt="image" src="https://github.com/user-attachments/assets/d9055c9f-6f9b-41cb-9ae7-7393b3390daa" />
+
+- Grafana Dashboard with Prometheus endpoint (skips duplicate entries, so 10 claimed but only 5 completed)
+<img width="1646" height="159" alt="image" src="https://github.com/user-attachments/assets/b5cc2e7b-28df-4873-bae0-d5dd8435d472" />
+
+
