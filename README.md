@@ -10,7 +10,7 @@
 ![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)
 ![Grafana](https://img.shields.io/badge/Grafana-F2F4F9?style=for-the-badge&logo=grafana&logoColor=orange)
 
-![Build Status](https://github.com/sp3ncerlan/distributed-job-scheduler/actions/workflows/maven.yml/badge.svg)
+[![Java CI with Maven](https://github.com/sp3ncerlan/distributed-job-scheduler/actions/workflows/maven.yml/badge.svg)](https://github.com/sp3ncerlan/distributed-job-scheduler/actions/workflows/maven.yml)
 
 **A high-concurrency job scheduling system capable of handling distributed locking and delayed execution.**
 </div>
