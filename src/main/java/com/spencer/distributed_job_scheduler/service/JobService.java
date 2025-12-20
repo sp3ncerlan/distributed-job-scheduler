@@ -1,9 +1,7 @@
 package com.spencer.distributed_job_scheduler.service;
 
 import com.spencer.distributed_job_scheduler.model.Job;
-import com.spencer.distributed_job_scheduler.repository.JobRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import com.spencer.distributed_job_scheduler.model.JobStatus;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +14,8 @@ public interface JobService {
 
     List<Job> getAllJobs();
 
-    // change DB to mark a job as 'RUNNING'
-    void markRunning(Job job);
+    // change STATUS in DB
+    void markStatus(Job job, JobStatus status);
+
+    Optional<Job> claimNextDueJob();
 }

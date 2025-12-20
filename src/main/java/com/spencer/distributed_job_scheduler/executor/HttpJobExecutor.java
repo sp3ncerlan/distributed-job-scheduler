@@ -1,30 +1,42 @@
 // java
 package com.spencer.distributed_job_scheduler.executor;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.spencer.distributed_job_scheduler.dto.HttpJobPayload;
 import com.spencer.distributed_job_scheduler.model.Job;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.lang.reflect.Array;
+import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
 
 @Component
 public class HttpJobExecutor implements JobExecutor {
 
-    private final RestTemplate restTemplate;
+    private static final Logger logger = LoggerFactory.getLogger(HttpJobExecutor.class);
+
+    private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
-    public HttpJobExecutor() {
+    public HttpJobExecutor(RestClient restClient) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(10_000);
         requestFactory.setReadTimeout(10_000);
 
-        this.restTemplate = new RestTemplate(requestFactory);
+        this.restClient = restClient;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -35,46 +47,35 @@ public class HttpJobExecutor implements JobExecutor {
 
     @Override
     public void execute(Job job) throws Exception {
-        JsonNode config = objectMapper.readTree(job.getPayload());
+        HttpJobPayload payload = objectMapper.readValue(job.getPayload(), HttpJobPayload.class);
 
-        String url = config.path("url").textValue();
-        if (url == null || url.isEmpty()) {
-            throw new IllegalArgumentException("Missing or empty `url` in job payload");
+        String method = payload.getMethod() == null ? "GET" : payload.getMethod().toUpperCase();
+        var requestSpec = restClient.method(HttpMethod.valueOf(method)).uri(payload.getUrl());
+
+        // set headers from payload safely
+        if (payload.getHeaders() != null && !payload.getHeaders().isEmpty()) {
+            requestSpec.headers(httpHeaders -> {
+                payload.getHeaders().forEach((k, v) -> {
+                    if (k == null || v == null) return;                  // skip nulls
+                    if ("Content-Length".equalsIgnoreCase(k)            // avoid forbidden headers
+                            || "Host".equalsIgnoreCase(k)) return;
+                    httpHeaders.add(k, v);
+                });
+            });
         }
 
-        String method = config.path("method").textValue();
-        if (method == null || method.isEmpty()) {
-            method = "POST";
-        }
-
-        String body = null;
-        JsonNode bodyNode = config.get("body");
-        if (bodyNode != null && !bodyNode.isNull()) {
-            body = bodyNode.isTextual() ? bodyNode.textValue() : bodyNode.toString();
-        }
-
-        HttpHeaders headers = new HttpHeaders();
-        JsonNode headersNode = config.get("headers");
-        if (headersNode != null && headersNode.isObject()) {
-            Iterator<String> names = headersNode.fieldNames();
-            while (names.hasNext()) {
-                String name = names.next();
-                JsonNode valueNode = headersNode.get(name);
-                if (valueNode != null && !valueNode.isNull()) {
-                    String value = valueNode.isTextual() ? valueNode.textValue() : valueNode.toString();
-                    headers.add(name, value);
+        // body only for non-GET methods; ensure Content-Type when sending JSON
+        if (!"GET".equals(method)) {
+            if (payload.getBody() != null) {
+                // if a client didn't set Content-Type, add application/json
+                if (payload.getHeaders() == null || !payload.getHeaders().containsKey("Content-Type")) {
+                    requestSpec.header("Content-Type", "application/json");
                 }
+                requestSpec.body(payload.getBody());
             }
         }
 
-        HttpMethod httpMethod;
-        try {
-            httpMethod = HttpMethod.valueOf(method.toUpperCase());
-        } catch (IllegalArgumentException ex) {
-            httpMethod = HttpMethod.POST;
-        }
-
-        HttpEntity<String> entity = new HttpEntity<>(body, headers);
-        restTemplate.exchange(url, httpMethod, entity, String.class);
+        // execute (API used in earlier conversation)
+        requestSpec.retrieve().toBodilessEntity();
     }
 }

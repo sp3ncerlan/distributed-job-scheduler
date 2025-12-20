@@ -4,5 +4,8 @@ Content-Type: application/json
 
 {
   "jobType": "HTTP",
-  "payload": "{\"url\":\"https://httpbin.org/post\",\"method\":\"POST\"}"
+  "payload": {
+    "url": "https://jsonplaceholder.typicode.com/todos/1",
+    "method": "GET"
+  }
 }

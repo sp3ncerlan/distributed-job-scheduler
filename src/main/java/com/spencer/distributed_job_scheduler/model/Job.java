@@ -36,14 +36,17 @@ public class Job {
     @Column(name = "scheduled_at", nullable = false)
     private Instant scheduledAt;
 
-    @Column(name = "started_at", nullable = false)
+    @Column(name = "started_at")
     private Instant startedAt;
 
-    @Column(name = "finished_at", nullable = false)
+    @Column(name = "finished_at")
     private Instant finishedAt;
 
-    @Column(columnDefinition = "text")
+    @Column(name = "payload", columnDefinition = "text")
     private String payload;
+
+    @Column(name = "claimed_by")
+    private String claimedBy;
 
     @Version
     @Setter(AccessLevel.NONE)

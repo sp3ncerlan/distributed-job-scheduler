@@ -4,7 +4,7 @@ import com.spencer.distributed_job_scheduler.executor.JobExecutor;
 import com.spencer.distributed_job_scheduler.model.Job;
 import com.spencer.distributed_job_scheduler.model.JobStatus;
 import com.spencer.distributed_job_scheduler.repository.JobRepository;
-import jakarta.annotation.Nullable;
+import com.spencer.distributed_job_scheduler.service.JobService;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +14,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -29,6 +30,7 @@ public class JobWorker {
 
     private final StringRedisTemplate redis;
     private final JobRepository jobRepository;
+    private final JobService jobService;
     private final JobExecutor jobExecutor;
 
     // ExecutorService manages the lifecycle of executors
@@ -55,14 +57,17 @@ public class JobWorker {
 
                     Job job = potentialJob.get();
                     try {
+                        // start time
+                        job.setStartedAt(Instant.now());
                         jobExecutor.execute(job);
-                        job.setStatus(JobStatus.COMPLETED);
-                        jobRepository.save(job);
+
+                        // end time
+                        job.setFinishedAt(Instant.now());
+                        jobService.markStatus(job, JobStatus.COMPLETED);
                         logger.info("Job {} completed", id);
                     } catch (Exception ex) {
                         logger.error("Job {} execution failed: {}", id, ex.getMessage(), ex);
-                        job.setStatus(JobStatus.FAILED);
-                        jobRepository.save(job);
+                        jobService.markStatus(job, JobStatus.FAILED);
                     }
                 } catch (Exception ex) {
                     logger.error("Worker loop error: {}", ex.getMessage(), ex);
@@ -72,6 +77,15 @@ public class JobWorker {
 
     @PreDestroy
     public void stop() {
-        scheduler.shutdown();
+        scheduler.shutdownNow();
+
+        try {
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                logger.warn("Scheduler did not terminate within timeout");
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while waiting for scheduler shutdown", ex);
+        }
     }
 }
