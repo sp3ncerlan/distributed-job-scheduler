@@ -13,6 +13,7 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -37,8 +38,6 @@ public class JobWorker {
     // ExecutorService manages the lifecycle of executors
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-    private MeterRegistry meterRegistry;
-    private Counter completedCounter;
     private Counter failedCounter;
     private Timer executionTimer;
 
@@ -55,11 +54,9 @@ public class JobWorker {
     // optional metric init
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void initMetrics(MeterRegistry registry) {
-        this.meterRegistry = registry;
-        if (this.meterRegistry != null) {
-            this.completedCounter = Counter.builder("jobs.completed.total").description("Total completed jobs").register(meterRegistry);
-            this.failedCounter = Counter.builder("jobs.failed.total").description("Total failed jobs").register(meterRegistry);
-            this.executionTimer = Timer.builder("jobs.execution.duration").description("Job execution duration").publishPercentiles(0.5, 0.95).register(meterRegistry);
+        if (registry != null) {
+            this.failedCounter = Counter.builder("jobs.failed.total").description("Total failed jobs").register(registry);
+            this.executionTimer = Timer.builder("jobs.execution.duration").description("Job execution duration").publishPercentiles(0.5, 0.95).register(registry);
         }
     }
 
@@ -74,7 +71,15 @@ public class JobWorker {
                         return;
                     }
 
-                    UUID id = UUID.fromString(idString);
+                    // validate UUID from queue; skip invalid values
+                    UUID id;
+                    try {
+                        id = UUID.fromString(idString);
+                    } catch (IllegalArgumentException iae) {
+                        logger.warn("Invalid job id from queue, skipping: {}", idString);
+                        return;
+                    }
+
                     Optional<Job> potentialJob = jobRepository.findById(id);
 
                     if (potentialJob.isEmpty()) {
@@ -83,9 +88,22 @@ public class JobWorker {
                     }
 
                     Job job = potentialJob.get();
+
+                    // skip if already completed (duplicate in queue)
+                    if (job.getStatus() == JobStatus.COMPLETED) {
+                        logger.info("Job {} already completed; skipping duplicate queue entry", id);
+                        return;
+                    }
+
                     try {
-                        // start time
+                        // attempt to mark RUNNING; handle optimistic lock races
                         job.setStartedAt(Instant.now());
+                        try {
+                            jobService.markStatus(job, JobStatus.RUNNING);
+                        } catch (ObjectOptimisticLockingFailureException oole) {
+                            logger.debug("Job {} already updated by another worker when marking RUNNING; skipping", id);
+                            return;
+                        }
 
                         if (executionTimer != null) {
                             executionTimer.record(() -> {
@@ -99,15 +117,23 @@ public class JobWorker {
                             jobExecutor.execute(job);
                         }
 
-                        // end time
+                        // end time and mark COMPLETED
                         job.setFinishedAt(Instant.now());
-                        jobService.markStatus(job, JobStatus.COMPLETED);
-                        if (completedCounter != null) completedCounter.increment();
-                        logger.info("Job {} completed", id);
+                        try {
+                            jobService.markStatus(job, JobStatus.COMPLETED);
+                            logger.info("Job {} completed", id);
+                        } catch (ObjectOptimisticLockingFailureException oole) {
+                            // someone else updated the row (likely marked COMPLETED) — treat as already-processed
+                            logger.debug("Job {} already updated by another worker when marking COMPLETED; treating as processed", id);
+                        }
                     } catch (Exception ex) {
                         logger.error("Job {} execution failed: {}", id, ex.getMessage(), ex);
                         if (failedCounter != null) failedCounter.increment();
-                        jobService.markStatus(job, JobStatus.FAILED);
+                        try {
+                            jobService.markStatus(job, JobStatus.FAILED);
+                        } catch (ObjectOptimisticLockingFailureException oole) {
+                            logger.debug("Job {} could not be marked FAILED due to optimistic lock; it may have been updated by another worker", id);
+                        }
                     }
                 } catch (Exception ex) {
                     logger.error("Worker loop error: {}", ex.getMessage(), ex);

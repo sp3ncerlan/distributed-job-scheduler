@@ -35,6 +35,7 @@ public class JobServiceImpl implements JobService {
     private MeterRegistry meterRegistry;
 
     private Counter claimedCounter;
+    private Counter completedCounter;
     private Timer claimTimer;
 
     public JobServiceImpl(JobRepository jobRepository, @Value("${scheduler.test.delay-ms:0}") long testDelayMs) {
@@ -48,6 +49,10 @@ public class JobServiceImpl implements JobService {
         if (this.meterRegistry != null) {
             this.claimedCounter = Counter.builder("jobs.claimed.total")
                     .description("Total jobs claimed by schedulers")
+                    .register(meterRegistry);
+
+            this.completedCounter = Counter.builder("jobs.completed.total")
+                    .description("Total jobs completed")
                     .register(meterRegistry);
 
             this.claimTimer = Timer.builder("jobs.claim.duration")
@@ -75,13 +80,41 @@ public class JobServiceImpl implements JobService {
     @Override
     @Transactional
     public void markStatus(Job job, JobStatus status) {
-        job.setStatus(status);
-        if (status == JobStatus.RUNNING) {
-            job.setStartedAt(Instant.now());
-        } else if (status == JobStatus.PENDING) {
-            job.setStartedAt(null);
+        // reload the current DB state to avoid using a potentially stale entity instance
+        Optional<Job> currentOpt = jobRepository.findById(job.getId());
+        if (currentOpt.isEmpty()) {
+            // nothing to do if the job no longer exists
+            return;
         }
-        jobRepository.save(job);
+
+        Job current = currentOpt.get();
+        JobStatus previous = current.getStatus();
+
+        // if there's no effective change, skip
+        if (previous == status) {
+            return;
+        }
+
+        // apply transition on the fresh entity
+        current.setStatus(status);
+        if (status == JobStatus.RUNNING) {
+            current.setStartedAt(Instant.now());
+        } else if (status == JobStatus.PENDING) {
+            current.setStartedAt(null);
+        } else if (status == JobStatus.COMPLETED) {
+            current.setFinishedAt(Instant.now());
+        }
+
+        jobRepository.save(current);
+
+        // centralize metric increments on actual transitions (based on DB previous state)
+        if (previous != JobStatus.RUNNING && status == JobStatus.RUNNING && claimedCounter != null) {
+            claimedCounter.increment();
+        }
+        // only count a completion when the job moved from RUNNING -> COMPLETED
+        if (previous == JobStatus.RUNNING && status == JobStatus.COMPLETED && completedCounter != null) {
+            completedCounter.increment();
+        }
     }
 
     @Override
@@ -98,8 +131,6 @@ public class JobServiceImpl implements JobService {
             Job job = opt.get();
             logger.info("claimNextDueJob: found job {}, claiming...", job.getId());
 
-            job.setStatus(JobStatus.RUNNING);
-            job.setStartedAt(Instant.now());
             try {
                 String host = InetAddress.getLocalHost().getHostName();
                 job.setClaimedBy(host + "-" + UUID.randomUUID());
@@ -107,11 +138,9 @@ public class JobServiceImpl implements JobService {
                 job.setClaimedBy("scheduler-" + UUID.randomUUID());
             }
 
-            jobRepository.save(job);
+            // use markStatus so the RUNNING transition and metric increment are centralized
+            markStatus(job, JobStatus.RUNNING);
             logger.info("claimNextDueJob: job {} marked RUNNING (startedAt={}, claimedBy={})", job.getId(), job.getStartedAt(), job.getClaimedBy());
-
-            // increment claimed counter if available
-            if (claimedCounter != null) claimedCounter.increment();
 
             if (testDelayMs > 0) {
                 logger.info("claimNextDueJob: sleeping {}ms for test visibility", testDelayMs);
