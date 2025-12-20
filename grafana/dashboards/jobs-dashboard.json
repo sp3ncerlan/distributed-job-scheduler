@@ -1,0 +1,38 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Jobs Claimed",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "jobs_claimed_total", "legendFormat": "claimed" }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 }
+    },
+    {
+      "type": "stat",
+      "title": "Jobs Completed",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "jobs_completed_total", "legendFormat": "completed" }
+      ],
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 }
+    },
+    {
+      "type": "stat",
+      "title": "Jobs Failed",
+      "datasource": "Prometheus",
+      "targets": [
+        { "expr": "jobs_failed_total", "legendFormat": "failed" }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 }
+    }
+  ],
+  "schemaVersion": 27,
+  "title": "Distributed Job Scheduler - Jobs",
+  "version": 1
+}
+

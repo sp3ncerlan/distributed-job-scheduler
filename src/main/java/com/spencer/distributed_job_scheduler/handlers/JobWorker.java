@@ -5,9 +5,11 @@ import com.spencer.distributed_job_scheduler.model.Job;
 import com.spencer.distributed_job_scheduler.model.JobStatus;
 import com.spencer.distributed_job_scheduler.repository.JobRepository;
 import com.spencer.distributed_job_scheduler.service.JobService;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -22,7 +24,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 @Component
-@RequiredArgsConstructor
 public class JobWorker {
 
     private static final Logger logger = LoggerFactory.getLogger(JobWorker.class);
@@ -35,6 +36,32 @@ public class JobWorker {
 
     // ExecutorService manages the lifecycle of executors
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
+    private MeterRegistry meterRegistry;
+    private Counter completedCounter;
+    private Counter failedCounter;
+    private Timer executionTimer;
+
+    public JobWorker(StringRedisTemplate redis,
+                     JobRepository jobRepository,
+                     JobService jobService,
+                     JobExecutor jobExecutor) {
+        this.redis = redis;
+        this.jobRepository = jobRepository;
+        this.jobService = jobService;
+        this.jobExecutor = jobExecutor;
+    }
+
+    // optional metric init
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void initMetrics(MeterRegistry registry) {
+        this.meterRegistry = registry;
+        if (this.meterRegistry != null) {
+            this.completedCounter = Counter.builder("jobs.completed.total").description("Total completed jobs").register(meterRegistry);
+            this.failedCounter = Counter.builder("jobs.failed.total").description("Total failed jobs").register(meterRegistry);
+            this.executionTimer = Timer.builder("jobs.execution.duration").description("Job execution duration").publishPercentiles(0.5, 0.95).register(meterRegistry);
+        }
+    }
 
     @PostConstruct
     public void start() {
@@ -59,14 +86,27 @@ public class JobWorker {
                     try {
                         // start time
                         job.setStartedAt(Instant.now());
-                        jobExecutor.execute(job);
+
+                        if (executionTimer != null) {
+                            executionTimer.record(() -> {
+                                try {
+                                    jobExecutor.execute(job);
+                                } catch (Exception e) {
+                                    throw new RuntimeException(e);
+                                }
+                            });
+                        } else {
+                            jobExecutor.execute(job);
+                        }
 
                         // end time
                         job.setFinishedAt(Instant.now());
                         jobService.markStatus(job, JobStatus.COMPLETED);
+                        if (completedCounter != null) completedCounter.increment();
                         logger.info("Job {} completed", id);
                     } catch (Exception ex) {
                         logger.error("Job {} execution failed: {}", id, ex.getMessage(), ex);
+                        if (failedCounter != null) failedCounter.increment();
                         jobService.markStatus(job, JobStatus.FAILED);
                     }
                 } catch (Exception ex) {
