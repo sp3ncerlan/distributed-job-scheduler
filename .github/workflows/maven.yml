@@ -9,10 +9,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/job_scheduler
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_DATA_REDIS_HOST: localhost
+      SPRING_DATA_REDIS_PORT: '6379'
     services:
       redis:
         image: redis:7.2-alpine
-        # ports aren't required for the runner, but left here for local clarity
         ports:
           - 6379:6379
         options: >-
@@ -55,6 +60,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Wait for Postgres and Redis
+        # ensure services are accepting connections before running the build/tests
+        run: |
+          echo "Waiting for Postgres and Redis to be available..."
+          for i in $(seq 1 60); do
+            nc -z localhost 5432 && nc -z localhost 6379 && echo "Services are up" && exit 0
+            echo "Waiting ($i/60)..."
+            sleep 1
+          done
+          echo "Timed out waiting for Postgres/Redis" >&2
+          exit 1
 
       - name: Set up JDK 17
         uses: actions/setup-java@v3
